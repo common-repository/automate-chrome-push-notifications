@@ -1,0 +1,8 @@
+{
+  "name": "Aklamator Chrome Push Notifications",
+  "short_name": "Aklamator Push",
+  "gcm_sender_id": "676316676091",
+  "permissions": [
+    "gcm"  // Other permissions, like "storage"
+  ]
+}

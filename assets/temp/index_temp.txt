@@ -1,0 +1,341 @@
+;(function(){
+
+    var akla_plugin = {
+
+        siteKey:
+        container: null,
+        host: "https://aklamator.com/",
+        snoozeCookieDays: 10,
+        modalTitle: "Stay tuned and get fresh information",
+        modalSubtitle: "Choose <strong>Allow</strong>  on next screen in order to enable push notifications.",
+        modalButton: "Agree!"
+    };
+
+    function init() {
+
+        // we're ready ...
+        // check if current browser is Chrome
+        var is_chrome = navigator.userAgent.toLowerCase().indexOf('chrome') > -1;
+        // push notifications only for chrome users version +42
+        if (is_chrome) {
+
+            if (window.location.protocol != "https:") {
+                console.warn( 'Chrome Push require Https valid Certificate, script terminated!');
+                return;
+            }
+
+            if (getCookie('display-akla-noti') == "")
+                setCookie('display-akla-noti', 'true'); // Set cookie only if does't exist already
+
+
+            if (getCookie('display-akla-noti') != 'false') { // check if we need to show dialog for notifications
+
+                getSubscription(function (error, regID){
+
+                    if(regID){
+                        setCookie('display-akla-noti', 'false'); // update cookie value
+                        console.warn('Subscription found! No need to show modal window');
+                    }
+
+                    if(error){ //No subscription found
+                        console.warn(error, ", User status:" + Notification.permission);
+                        if (Notification.permission !== 'denied'){ // Everything is fine lets subscribe user
+                            initSubscribe();
+                            return;
+                        }
+                    }
+                });
+
+            }
+
+        }
+
+    }
+
+
+    function initSubscribe(){
+        addModalStyle(); //Load style for modal window
+        renderModalWindow();
+
+        akla_plugin.container = document.getElementById('akla-push-modal-7');
+        var defaultClass = "akla-md-modal akla-md-effect-7 ";
+
+        // Detect if mobile and position notification on the bottom of the page
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+            akla_plugin.container.className = defaultClass + "akla-toast-bottom-full-width akla-md-show";
+
+        } else {
+            akla_plugin.container.className = defaultClass + "akla-toast-top-full-width akla-md-show";
+        }
+
+        //log that we have displayed green notification
+        sendViewLog();
+
+        //Attach click EventListener to div
+        aklaAddEvent(akla_plugin.container, 'click', doSubscription);
+    }
+
+    //Function for actual subscription
+
+    function doSubscription() {
+
+        setCookie('display-akla-noti', 'false'); // update cookie value
+        akla_plugin.container.className = 'akla-md-modal akla-md-effect-7';
+
+        // subscribe to push Notifications
+        var chromePushManager = new ChromePushManager('/service-worker.js', function (error, registrationId) {
+
+            console.log(registrationId);
+
+            if (error) {
+                alert(error);
+
+            } else {
+
+                var xhttp = new XMLHttpRequest();
+                xhttp.onreadystatechange = function () {
+                    if (xhttp.readyState == 4 && xhttp.status == 200) {
+                        if (xhttp.responseText != "") {
+                            var response = xhttp.responseText;
+                            obj = JSON.parse(response);
+                            console.log(obj);
+                        }
+                    }
+                };
+
+                xhttp.open("POST", akla_plugin.host + "insert/subscription", true);
+                xhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+                xhttp.send("channel=" + channel() + "&regId=" + registrationId + "&domain=" + url_domain(window.location.href) + "&siteKey=" + akla_plugin.siteKey);
+
+            }
+
+        });
+
+    }
+
+    // Function that logs that user have been seen green box
+    function sendViewLog() {
+
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function () {
+            if (xhttp.readyState == 4 && xhttp.status == 200) {
+                if (xhttp.responseText != "") {
+                    var response = xhttp.responseText;
+                    obj = JSON.parse(response);
+                    console.log(obj);
+                }
+            }
+        };
+
+        xhttp.open("POST", akla_plugin.host + "log/notification/view", true);
+        xhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+        xhttp.send("channel=" + channel() + "&domain=" + url_domain(window.location.href) + "&siteKey=" + akla_plugin.siteKey);
+
+    }
+
+    /*
+     generate the user private channel and save it at the local storage
+     so we always use the same channel for each user
+     */
+    function channel() {
+
+        var userChannel = localStorage.getItem("channel");
+        if (userChannel == null || userChannel == "null") {
+            var guid = (S4() + S4() + "-" + S4() + "-4" + S4().substr(0, 3) + "-" + S4() + "-" + S4() + S4() + S4()).toLowerCase();
+            userChannel = 'channel-' + guid;
+            localStorage.setItem("channel", userChannel);
+        }
+        return userChannel;
+    }
+
+    // generate a GUID
+    function S4() {
+        return (((1 + Math.random()) * 0x10000) | 0).toString(16).substring(1);
+    }
+
+    // Get current page domain
+    function url_domain(data) {
+        var a = document.createElement('a');
+        a.href = data;
+        return a.protocol + "//" + a.hostname + a.pathname;
+    }
+
+    function url_host(data) {
+
+        var a = document.createElement('a');
+        a.href = data;
+
+        var hostname = a.hostname;
+
+        if (hostname.indexOf("127") > -1)
+            return hostname;
+
+        return "." + hostname;
+    }
+
+    function setCookie(cname, cvalue) {
+        var d = new Date();
+        d.setTime(d.getTime() + (akla_plugin.snoozeCookieDays * 24 * 60 * 60 * 1000));
+        var expires = "expires=" + d.toUTCString();
+        var domain = url_host(window.location.href);
+        document.cookie = cname + "=" + cvalue + ";" + expires + ";domain=" + domain + ";path=/";
+    }
+
+    function getCookie(cname) {
+        var name = cname + "=";
+        var ca = document.cookie.split(';');
+        for (var i = 0; i < ca.length; i++) {
+            var c = ca[i];
+            while (c.charAt(0) == ' ') c = c.substring(1);
+            if (c.indexOf(name) == 0) return c.substring(name.length, c.length);
+        }
+        return "";
+    }
+
+    function addModalStyle() {
+        addManifest(); // insert link to manifest fajl in head
+        addViewport(); // insert meta viewport in head for mobile users
+
+        //Insert style for responsive widget
+        var vb_ava, browser;
+        var vb_style = '.akla-md-content h3,button{color:#fff;font-family:Helvetica}.akla-md-modal{position:fixed;left:50%;height:auto;z-index:2000;visibility:hidden;-webkit-backface-visibility:hidden;-moz-backface-visibility:hidden;backface-visibility:hidden}.akla-md-show{visibility:visible}.akla-md-show~.akla-md-overlay{opacity:1;visibility:visible}.akla-md-content{color:#fff;background:#e74c3c;position:relative;border-radius:3px;margin:0 auto;border:1px solid #fff}.akla-md-content h3{margin:0;padding:.2em;text-align:center;font-size:1.8em;font-weight:300;opacity:.8;background:rgba(0,0,0,.1);border-radius:3px 3px 0 0}.akla-md-content>div{padding:0 60px 10px;margin:0;font-weight:300;font-size:1.15em}.akla-md-content>div p{margin:0;padding:0}.akla-md-content>div ul{margin:0;padding:0 0 0 20px}.akla-md-content>div ul li{padding:3px 0;font-family:Helvetica}button{border:none;padding:.6em 1.2em;background:#c0392b;font-size:.8em;letter-spacing:1px;text-transform:uppercase;cursor:pointer;display:inline-block;margin:3px 2px;border-radius:2px}button:hover{background:#A5281B}.akla-md-content button{display:block;margin:0 auto}.akla-toast-success button{background:#1a8715}.akla-toast-success button:hover{background:#1d8c3c}.akla-toast{background-color:#030303}.akla-toast-success{background-color:#51a351}.akla-toast-error{background-color:#bd362f}.akla-toast-info{background-color:#2f96b4}.akla-toast-warning{background-color:#f89406}.noselect{-webkit-touch-callout:none;-webkit-user-select:none;-khtml-user-select:none;-moz-user-select:none;-ms-user-select:none;user-select:none}.akla-toast-top-full-width{top:0;left:5px}.akla-toast-bottom-full-width{bottom:0;right:0;width:97%}.akla-md-effect-7 .akla-md-content{-webkit-transform:translateY(-200%);-moz-transform:translateY(-200%);-ms-transform:translateY(-200%);transform:translateY(-200%);-webkit-transition:all .3s;-moz-transition:all .3s;transition:all .3s;opacity:0}.akla-md-show.akla-md-effect-7 .akla-md-content{-webkit-transform:translateY(0);-moz-transform:translateY(0);-ms-transform:translateY(0);transform:translateY(0);border-radius:0 0 3px 3px;opacity:1}@media all and (max-width:240px){.akla-md-modal{-webkit-transform:translateX(-50%) translateY(-50%);-moz-transform:translateX(-50%) translateY(-50%);-ms-transform:translateX(-50%) translateY(-50%);transform:translateX(-50%) translateY(-50%)}.akla-md-content button{font-size:1em;position:relative;right:-100px}button{padding:1em 1.2em}.akla-md-content>div{padding:15px 20px 10px}.akla-md-effect-7{-webkit-transform:translateX(-50%);-moz-transform:translateX(-50%);-ms-transform:translateX(-50%);transform:translateX(-50%)}}@media all and (min-width:241px) and (max-width:480px){.akla-md-modal{-webkit-transform:translateX(-50%) translateY(-50%);-moz-transform:translateX(-50%) translateY(-50%);-ms-transform:translateX(-50%) translateY(-50%);transform:translateX(-50%) translateY(-50%)}.akla-md-content button{font-size:1em;position:relative;right:-100px}button{padding:1em 1.2em}.akla-md-content>div{padding:15px 20px 10px}.akla-md-effect-7{-webkit-transform:translateX(-50%);-moz-transform:translateX(-50%);-ms-transform:translateX(-50%);transform:translateX(-50%)}}@media all and (min-width:481px) and (max-width:768px){.akla-md-modal{-webkit-transform:translateX(-50%) translateY(-50%);-moz-transform:translateX(-50%) translateY(-50%);-ms-transform:translateX(-50%) translateY(-50%);transform:translateX(-50%) translateY(-50%)}.akla-md-content button{font-size:1em;position:relative;right:-170px}button{padding:.8em 1.2em}.akla-md-content>div{padding:15px 20px 10px}.akla-md-effect-7{-webkit-transform:translateX(-50%);-moz-transform:translateX(-50%);-ms-transform:translateX(-50%);transform:translateX(-50%)}}@media all and (min-width:769px) and (max-width:960px){.akla-md-modal{-webkit-transform:translateX(-50%) translateY(-50%);-moz-transform:translateX(-50%) translateY(-50%);-ms-transform:translateX(-50%) translateY(-50%);transform:translateX(-50%) translateY(-50%)}.akla-md-content button{font-size:1em;position:relative;right:-380px}button{padding:.8em 1.2em}.akla-md-content>div{padding:15px 20px 10px}.akla-md-effect-7{-webkit-transform:translateX(-50%);-moz-transform:translateX(-50%);-ms-transform:translateX(-50%);transform:translateX(-50%)}}';
+        vb_ava = document.createElement('style');
+        vb_ava.type = 'text/css';
+        browser = document.createTextNode(vb_style);
+        if (navigator.appName == 'Microsoft Internet Explorer') {
+            vb_ava.styleSheet.cssText = vb_style;
+        } else {
+            vb_ava.innerHTML = vb_style;
+        }
+        var headID = document.getElementsByTagName("head")[0];
+        headID.appendChild(vb_ava);
+
+    }
+
+    function addViewport() {
+        //Insert viewport for responsive widget
+        var metaView;
+
+        metaView = document.createElement('meta');
+        metaView.name = 'viewport';
+        metaView.content = 'width=device-width, initial-scale=1';
+        var headID = document.getElementsByTagName("head")[0];
+        headID.appendChild(metaView);
+    }
+
+    function addManifest() {
+        //Insert viewport for responsive widget
+        var manifest;
+
+        manifest = document.createElement('link');
+        manifest.rel = 'manifest';
+        manifest.href = "/manifest.json";
+        var headID = document.getElementsByTagName("head")[0];
+        headID.appendChild(manifest);
+    }
+
+    function renderModalWindow() {
+
+        var elemDiv = document.createElement('div');
+            elemDiv.id = "akla-push-modal-7";
+            elemDiv.className = "akla-md-modal akla-md-effect-7 akla-toast-top-full-width";
+            elemDiv.innerHTML = '<div class="akla-md-content akla-toast-success noselect">' +
+                '<h3>' + akla_plugin.modalTitle + '</h3>' +
+                '<div>' +
+                '<ul>' +
+                '<li>' + akla_plugin.modalSubtitle + '</li>' +
+                '</ul>' +
+                '<button class="akla-md-close" id="button-accept">' + akla_plugin.modalButton + '</button>' +
+                '</div></div>';
+        document.body.appendChild(elemDiv);
+
+    }
+
+    function ChromePushManager(serviceWorkerPath, callback) {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register(serviceWorkerPath)
+                .then(initialiseState(callback));
+        } else {
+            callback('Service workers aren\'t supported in this browser.', null);
+        }
+    }
+
+    function initialiseState(callback) {
+        // Are Notifications supported in the service worker?
+        if (!('showNotification' in ServiceWorkerRegistration.prototype)) {
+            callback('Notifications aren\'t supported.', null);
+        } else if (Notification.permission === 'denied') {
+            callback('The user has blocked notifications.', null);
+        } else if (!('PushManager' in window)) {
+            callback('Push messaging isn\'t supported.', null);
+        } else {
+            subscribeBrowserId(callback);
+        }
+    }
+
+    function subscribeBrowserId(callback) {
+        navigator.serviceWorker.ready.then(function (serviceWorkerRegistration) {
+            serviceWorkerRegistration.pushManager.subscribe({userVisibleOnly: true})
+                .then(function (subscription) {
+
+                    var register = getRegistrationId(subscription);
+                    callback(null, register);
+                })
+                .catch(function (e) {
+                    if (Notification.permission === 'denied') {
+                        callback('Permission for Notifications was denied', null);
+                    } else {
+                        callback('Unable to subscribe to push.', null);
+                    }
+                });
+        });
+    }
+
+    function getSubscription(callback){
+
+        navigator.serviceWorker.ready.then(function(serviceWorkerRegistration) {
+
+            serviceWorkerRegistration.pushManager.getSubscription()
+                .then(function(subscription) {
+
+                    var regID = getRegistrationId(subscription);
+                    callback(null, regID);
+
+                })
+                .catch(function(err) {
+                    callback('Unable to find subscription', null);
+
+                });
+        });
+
+    }
+
+    function getRegistrationId(pushSubscription) {
+        if (pushSubscription.subscriptionId) {
+            return pushSubscription.subscriptionId;
+        }
+        var endpoint = 'https://android.googleapis.com/gcm/send/';
+        parts = pushSubscription.endpoint.split(endpoint);
+
+        if (parts.length > 1) {
+            return parts[1];
+        }
+    }
+
+    function aklaAddEvent(element, evnt, funct) {
+        if (element.attachEvent)
+            element.attachEvent('on' + evnt, funct);
+        else
+            element.addEventListener(evnt, funct, false);
+    }
+
+    function aklaRemoveEvent(elem, eventType, handler) {
+        if (elem.removeEventListener)
+            elem.removeEventListener(eventType, handler, false);
+        if (elem.detachEvent)
+            elem.detachEvent('on' + eventType, handler);
+    }
+
+    aklaAddEvent(window, 'load', init);
+
+}());

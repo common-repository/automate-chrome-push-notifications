@@ -1,0 +1,96 @@
+var _aklaPUSH = {
+    version: 1,
+    logging: true,
+    siteKey:
+    host: 'https://aklamator.com/'
+
+};
+
+self.addEventListener('install', function (evt) {
+    //Automatically take over the previous worker.
+    evt.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', function (evt) {
+    if (_aklaPUSH.logging) console.log("Activated Aklamator ServiceWorker version: " + _aklaPUSH.version);
+});
+
+
+var getRegistrationId = function (pushSubscription) {
+    if (pushSubscription.subscriptionId) {
+        return pushSubscription.subscriptionId;
+    }
+
+    var endpoint = 'https://android.googleapis.com/gcm/send/';
+    var parts = pushSubscription.endpoint.split(endpoint);
+
+    if (parts.length > 1) {
+        return parts[1];
+    }
+
+};
+
+
+// A push has arrived ...
+
+self.addEventListener('push', function (event) {
+    // Since there is no payload data with the first version
+    // of push messages, we'll grab some data from
+    // an API and use it to populate a notification
+    if (_aklaPUSH.logging) console.log('Received a new push message', event);
+
+    event.waitUntil(self.registration.pushManager.getSubscription().then(function (subscription) {
+            var regID = getRegistrationId(subscription);
+            _aklaPUSH.regID = regID;
+
+        if (_aklaPUSH.logging) console.log('Push sub data', regID);
+
+           return fetch(_aklaPUSH.host + 'get/notification?siteKey='+_aklaPUSH.siteKey+'&regID='+regID).then(function(response) {
+
+               // Examine the text in the response
+               return response.json().then(function(data) {
+
+                   if (_aklaPUSH.logging) console.log('Push data received', data);
+                   var promises = [];
+
+                   var title = data.notification.title;
+                   var message = data.notification.message;
+                   var icon = data.notification.icon;
+                   var notificationTag = data.notification.tag;
+                   _aklaPUSH.urlToOpen = data.notification.url;
+                   _aklaPUSH.notID = data.notification.id;
+
+                   promises.push(showNotification(title, message,notificationTag, icon, _aklaPUSH.urlToOpen));
+
+                   return Promise.all(promises);
+               });
+
+
+
+            })
+
+        }));
+});
+
+
+self.addEventListener('notificationclick', function (event) {
+
+    console.log(event);
+    event.notification.close();
+    event.waitUntil(
+        fetch(_aklaPUSH.host + 'update/notification?siteKey=' + _aklaPUSH.siteKey + '&regID=' + _aklaPUSH.regID + "&id=" + _aklaPUSH.notID).then(function (response) {
+            console.log(response);
+            clients.openWindow(event.notification.data);
+        })
+    );
+});
+
+function showNotification(title, body, tag, image, data) {
+    var options = {
+        body: body,
+        tag: tag,
+        icon: image,
+        data: data
+    };
+    return self.registration.showNotification(title, options);
+}
